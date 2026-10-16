@@ -534,11 +534,13 @@ function gpx(c) {
 }
 $('gpx').onclick = () => { if (!S.course) return status('Generate a course first.');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([gpx(S.course)], { type:'application/gpx+xml' })); a.download = `orienteer-${S.course.diff}.gpx`; a.click(); };
-$('print').onclick = () => { if (!S.course) return status('Generate a course first.'); const c = S.course;
+function legacyPrint() { if (!S.course) return status('Generate a course first.'); const c = S.course;
   $('printSheet').innerHTML = `<h3>${DIFF[c.diff].label} course · ${c.controls.length} controls · ${(c.length/1000).toFixed(2)} km</h3><table><tr><th>#</th><th>Lat</th><th>Lon</th><th>UTM</th><th>Feature</th><th>Trail dist</th><th>Leg (m)</th></tr>` +
     c.controls.map((k, i) => { const p = i ? c.controls[i-1] : { lat:c.start[1], lon:c.start[0] }; return `<tr><td>${k.n}</td><td>${k.lat.toFixed(5)}</td><td>${k.lon.toFixed(5)}</td><td>${fmtUTM(k.lat, k.lon)}</td><td>${k.kind}</td><td>${Math.round(k.dTrail)} m</td><td>${Math.round(turf.distance([p.lon,p.lat],[k.lon,k.lat],{units:'meters'}))}</td></tr>`; }).join('') + '</table>';
   document.body.classList.add('printing'); map.invalidateSize();
-  setTimeout(() => { window.print(); document.body.classList.remove('printing'); map.invalidateSize(); }, 400); };
+  setTimeout(() => { window.print(); document.body.classList.remove('printing'); map.invalidateSize(); }, 400); }
+PrintMap.setLegacy(legacyPrint);
+$('print').onclick = () => PrintMap.printDialog();
 
 /* offline tile prefetch for the course area (cached by the service worker) */
 $('cacheTiles').onclick = async () => {

@@ -1,5 +1,5 @@
-const SHELL = 'orienteer-shell-v4', TILES = 'orienteer-tiles-v1', MAX_TILES = 3000;
-const ASSETS = ['./','index.html','app.js','app.css','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','vendor/leaflet.js','vendor/leaflet.css','vendor/turf.min.js','vendor/images/layers.png','vendor/images/layers-2x.png','vendor/images/marker-icon.png','vendor/images/marker-shadow.png'];
+const SHELL = 'orienteer-shell-v5', TILES = 'orienteer-tiles-v1', MAX_TILES = 3000;
+const ASSETS = ['./','index.html','app.js','printmap.js','vendor/internmap.min.js','vendor/d3-array.min.js','vendor/d3-contour.min.js','app.css','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','vendor/leaflet.js','vendor/leaflet.css','vendor/turf.min.js','vendor/images/layers.png','vendor/images/layers-2x.png','vendor/images/marker-icon.png','vendor/images/marker-shadow.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(SHELL).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => ![SHELL, TILES].includes(k)).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 const isTile = u => /tile\.openstreetmap\.org|arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery|tile\.opentopomap\.org|basemap\.nationalmap\.gov/.test(u);
