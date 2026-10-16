@@ -64,6 +64,7 @@
 
 <div id="runbar" hidden>
   <div class="row"><b id="rClock">00:00</b><span id="rNext"></span><span id="rAcc" class="small"></span></div>
+  <div class="row small coords" id="rCoords" title="Tap to switch format"><span id="rNextC"></span><span id="rMe"></span></div>
   <div class="row wrap small">
     <label>Radius <b id="radOut">auto</b><input type="range" id="rad" min="4" max="35" value="4" step="1"></label>
     <label><input type="checkbox" id="hidePos"> hide my position</label>
@@ -71,6 +72,7 @@
   <div class="row wrap">
     <button id="rStart" class="primary">Start clock</button>
     <button id="hint">🧭 Hint (+<span id="penOut">60</span>s)</button>
+    <button id="courseList">📋 Course list</button>
     <button id="rStop">■ Finish/Quit</button>
   </div>
   <div id="rMsg" class="small"></div>

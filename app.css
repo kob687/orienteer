@@ -36,3 +36,6 @@ body.printing #panel,body.printing #runbar,body.printing .leaflet-control-contai
 .drawing-map,.drawing-map .leaflet-interactive{cursor:crosshair!important;touch-action:none}
 #panel button{touch-action:manipulation}
 @media (max-width:600px){#panel{max-height:62vh}}
+#rCoords{flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.35;user-select:none}
+#rCoords span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.clist{border-collapse:collapse;font-size:13px}.clist td,.clist th{padding:3px 6px;border-bottom:1px solid #ddd;text-align:left}.clist .done{color:#888}

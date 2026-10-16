@@ -449,6 +449,33 @@ $('gen').onclick = generate; $('regen').onclick = generate;
 $('roads').onchange = () => { S.data = null; };
 $('scoreMode').onchange = () => { if (S.course) { S.course.score = $('scoreMode').checked; drawCourse(); } };
 $('togglePanel').onclick = () => { const b = $('panelBody'); b.hidden = !b.hidden; $('togglePanel').textContent = b.hidden ? '▸' : '▾'; };
+/* ---------- coordinates: decimal degrees / UTM (WGS84) ---------- */
+function toUTM(lat, lon) {
+  const a = 6378137, f = 1/298.257223563, k0 = 0.9996, e2 = f*(2-f), ep2 = e2/(1-e2), d = Math.PI/180;
+  let zone = Math.floor((lon + 180) / 6) + 1;
+  if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) zone = 32;
+  if (lat >= 72 && lat < 84) { if (lon >= 0 && lon < 9) zone = 31; else if (lon >= 9 && lon < 21) zone = 33; else if (lon >= 21 && lon < 33) zone = 35; else if (lon >= 33 && lon < 42) zone = 37; }
+  const phi = lat*d, lam0 = ((zone-1)*6 - 180 + 3)*d, s = Math.sin(phi), c = Math.cos(phi), t = Math.tan(phi);
+  const N = a/Math.sqrt(1 - e2*s*s), T = t*t, C = ep2*c*c, A = c*(lon*d - lam0);
+  const M = a*((1 - e2/4 - 3*e2*e2/64 - 5*e2**3/256)*phi - (3*e2/8 + 3*e2*e2/32 + 45*e2**3/1024)*Math.sin(2*phi) + (15*e2*e2/256 + 45*e2**3/1024)*Math.sin(4*phi) - (35*e2**3/3072)*Math.sin(6*phi));
+  const E = k0*N*(A + (1-T+C)*A**3/6 + (5 - 18*T + T*T + 72*C - 58*ep2)*A**5/120) + 500000;
+  let Nn = k0*(M + N*t*(A*A/2 + (5 - T + 9*C + 4*C*C)*A**4/24 + (61 - 58*T + T*T + 600*C - 330*ep2)*A**6/720));
+  if (lat < 0) Nn += 10000000;
+  const band = 'CDEFGHJKLMNPQRSTUVWXX'[Math.max(0, Math.min(20, Math.floor((lat + 80) / 8)))];
+  return { zone, band, E, N: Nn };
+}
+let coordFmt = localStorage.getItem('orienteer.coordFmt') === 'utm' ? 'utm' : 'dd';
+const fmtUTM = (lat, lon) => { const u = toUTM(lat, lon); return `${u.zone}${u.band} ${Math.round(u.E)}E ${Math.round(u.N)}N`; };
+const fmtCoord = (lat, lon) => coordFmt === 'utm' ? fmtUTM(lat, lon) : `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+function updateCoords() { const r = S.run; if (!r || !S.course) return; const t = nextTarget();
+  $('rNextC').textContent = r.finished ? '' : t ? `${t.finish ? 'Finish' : 'Next #' + t.n}: ${fmtCoord(t.lat, t.lon)}` : 'Next: any order (see Course list)';
+  const p = r.pos;
+  $('rMe').textContent = $('hidePos').checked ? 'Me: hidden' : p ? `Me: ${fmtCoord(p.coords.latitude, p.coords.longitude)} ±${Math.round(p.coords.accuracy)} m` : 'Me: waiting for GPS…'; }
+$('rCoords').onclick = () => { coordFmt = coordFmt === 'utm' ? 'dd' : 'utm'; localStorage.setItem('orienteer.coordFmt', coordFmt); updateCoords(); };
+$('courseList').onclick = () => { if (!S.course) return; const r = S.run || { punched:{} };
+  modal(`<h3>Course list <small>(${coordFmt === 'utm' ? 'UTM' : 'lat, lon'})</small></h3><table class="clist"><tr><th>#</th><th>Coordinates</th><th>Status</th></tr>` +
+    S.course.controls.map(k => `<tr class="${r.punched[k.n] ? 'done' : ''}"><td>${k.n}</td><td>${fmtCoord(k.lat, k.lon)}</td><td>${r.punched[k.n] ? '✅ punched' : '○ not yet'}</td></tr>`).join('') +
+    `<tr><td>S/F</td><td>${fmtCoord(S.course.start[1], S.course.start[0])}</td><td></td></tr></table>`); };
 const modal = (html) => { $('modalBody').innerHTML = html; $('modal').hidden = false; };
 $('modalClose').onclick = () => $('modal').hidden = true;
 
@@ -475,8 +502,8 @@ function gpx(c) {
 $('gpx').onclick = () => { if (!S.course) return status('Generate a course first.');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([gpx(S.course)], { type:'application/gpx+xml' })); a.download = `orienteer-${S.course.diff}.gpx`; a.click(); };
 $('print').onclick = () => { if (!S.course) return status('Generate a course first.'); const c = S.course;
-  $('printSheet').innerHTML = `<h3>${DIFF[c.diff].label} course · ${c.controls.length} controls · ${(c.length/1000).toFixed(2)} km</h3><table><tr><th>#</th><th>Lat</th><th>Lon</th><th>Feature</th><th>Trail dist</th><th>Leg (m)</th></tr>` +
-    c.controls.map((k, i) => { const p = i ? c.controls[i-1] : { lat:c.start[1], lon:c.start[0] }; return `<tr><td>${k.n}</td><td>${k.lat.toFixed(5)}</td><td>${k.lon.toFixed(5)}</td><td>${k.kind}</td><td>${Math.round(k.dTrail)} m</td><td>${Math.round(turf.distance([p.lon,p.lat],[k.lon,k.lat],{units:'meters'}))}</td></tr>`; }).join('') + '</table>';
+  $('printSheet').innerHTML = `<h3>${DIFF[c.diff].label} course · ${c.controls.length} controls · ${(c.length/1000).toFixed(2)} km</h3><table><tr><th>#</th><th>Lat</th><th>Lon</th><th>UTM</th><th>Feature</th><th>Trail dist</th><th>Leg (m)</th></tr>` +
+    c.controls.map((k, i) => { const p = i ? c.controls[i-1] : { lat:c.start[1], lon:c.start[0] }; return `<tr><td>${k.n}</td><td>${k.lat.toFixed(5)}</td><td>${k.lon.toFixed(5)}</td><td>${fmtUTM(k.lat, k.lon)}</td><td>${k.kind}</td><td>${Math.round(k.dTrail)} m</td><td>${Math.round(turf.distance([p.lon,p.lat],[k.lon,k.lat],{units:'meters'}))}</td></tr>`; }).join('') + '</table>';
   document.body.classList.add('printing'); map.invalidateSize();
   setTimeout(() => { window.print(); document.body.classList.remove('printing'); map.invalidateSize(); }, 400); };
 
@@ -518,12 +545,12 @@ $('rStart').onclick = () => { S.run.started = Date.now(); $('rStart').hidden = t
 let clockT = setInterval(() => { if (S.run && S.run.started && !S.run.finished) $('rClock').textContent = fmt(Date.now() - S.run.started); }, 500);
 function nextTarget() { const c = S.course, r = S.run; const left = c.controls.filter(k => !r.punched[k.n]); if (!left.length) return { finish:true, lat:c.start[1], lon:c.start[0] }; return c.score ? null : left[0]; }
 function updateRunUI() { const r = S.run, c = S.course; const nP = Object.keys(r.punched).length;
-  const t = nextTarget(); $('rNext').textContent = r.finished ? 'Finished' : t && t.finish ? '→ Finish' : c.score ? `${nP}/${c.controls.length} punched (any order)` : `→ Control ${t.n} (${nP}/${c.controls.length})`; }
+  const t = nextTarget(); $('rNext').textContent = r.finished ? 'Finished' : t && t.finish ? '→ Finish' : c.score ? `${nP}/${c.controls.length} punched (any order)` : `→ Control ${t.n} (${nP}/${c.controls.length})`; updateCoords(); }
 function onPos(p) {
   const r = S.run; if (!r || r.finished) return; r.pos = p;
   const { latitude:lat, longitude:lon, accuracy:acc } = p.coords;
   $('rAcc').textContent = `GPS ±${Math.round(acc)} m`; $('rAcc').style.color = acc <= 10 ? 'green' : acc <= 25 ? '#a60' : 'red';
-  meLayer.clearLayers();
+  meLayer.clearLayers(); updateCoords();
   if (!$('hidePos').checked) { L.circle([lat, lon], { radius:acc, color:'#2a7fff', weight:1, fillOpacity:0.1, interactive:false }).addTo(meLayer); L.circleMarker([lat, lon], { radius:7, color:'#fff', weight:2, fillColor:'#2a7fff', fillOpacity:1, interactive:false }).addTo(meLayer); }
   if (!r.started) return;
   const here = [lon, lat], dm = k => turf.distance(here, [k.lon, k.lat], { units:'meters' });
@@ -545,7 +572,7 @@ function finish(quit=false) { const r = S.run; if (!r) return; r.finished = true
     <table><tr><th>Control</th><th>Split</th><th>Total</th></tr>${r.splits.map(s => `<tr><td>${s.n}</td><td>${fmt(s.split)}</td><td>${fmt(s.total)}</td></tr>`).join('')}${!quit ? `<tr><td>Finish</td><td>${fmt(end - (r.splits.length ? r.splits[r.splits.length-1].t : r.started))}</td><td>${fmt(raw)}</td></tr>` : ''}</table>`);
   $('rClock').textContent = fmt(raw); updateRunUI(); }
 $('rStop').onclick = () => { if (S.run && !S.run.finished) finish(true); $('runbar').hidden = true; $('panel').hidden = false; meLayer.clearLayers(); };
-$('hidePos').onchange = () => S.run && S.run.pos && onPos(S.run.pos);
+$('hidePos').onchange = () => { if (S.run && S.run.pos) onPos(S.run.pos); updateCoords(); };
 $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').textContent = 'Waiting for GPS…';
   let t = nextTarget(); const here = [r.pos.coords.longitude, r.pos.coords.latitude];
   if (!t) t = S.course.controls.filter(k => !r.punched[k.n]).sort((a,b) => turf.distance(here,[a.lon,a.lat]) - turf.distance(here,[b.lon,b.lat]))[0];
@@ -561,4 +588,4 @@ $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').
   else status('Search for a park, or zoom in and draw an area.');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
 })();
-window.App = { startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
+window.App = { toUTM, startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
