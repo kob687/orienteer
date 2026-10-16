@@ -18,10 +18,12 @@
   <div id="results"></div>
   <div class="label">1 · Area</div>
   <div class="row wrap">
+    <button id="drawPoly">✏️ Draw area</button>
     <button id="drawRect">▭ Rectangle</button>
-    <button id="drawPoly">⬠ Polygon</button>
-    <button id="pickPark">🌲 Parks here</button>
-    <button id="clearArea" class="sm">✕</button>
+    <button id="drawCircle">◯ Circle</button>
+    <button id="useView">⛶ Use current map view</button>
+    <button id="pickPark">🌲 Parks in view</button>
+    <button id="clearArea" class="sm">✕ Clear</button>
   </div>
   <div id="parks"></div>
   <div class="label">2 · Difficulty</div>
@@ -52,6 +54,12 @@
   <div id="status" class="small"></div>
   <div id="legend" class="small"></div>
   </div>
+</div>
+
+<div id="drawBar" hidden>
+  <div id="drawBanner"></div>
+  <div class="row" id="circleRow" hidden><label>Radius <b id="circROut">500 m</b></label><input type="range" id="circR" min="250" max="3000" step="50" value="500"><button id="circMe">📍 Around me</button></div>
+  <div class="row dbtns"><button id="dUndo">↶ Undo point</button><button id="dClear">Clear</button><button id="dDone" class="primary">✓ Done</button><button id="dCancel">✕ Cancel</button></div>
 </div>
 
 <div id="runbar" hidden>

@@ -13,7 +13,7 @@ const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoo
 const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagery © Esri'});
 const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenTopoMap (CC-BY-SA), © OSM'});
 L.control.layers({ 'Street (OSM)':osm, 'Satellite (Esri)':sat, 'Topo (OpenTopoMap)':topo }, null, { position:'bottomright' }).addTo(map);
-map.attributionControl.setPrefix(false);
+map.attributionControl.setPrefix(false); map.zoomControl.setPosition('topright');
 const areaLayer = L.layerGroup().addTo(map), trailLayer = L.layerGroup().addTo(map), courseLayer = L.layerGroup().addTo(map), meLayer = L.layerGroup().addTo(map), drawLayer = L.layerGroup().addTo(map);
 
 /* ---------- search (Nominatim) ---------- */
@@ -99,30 +99,96 @@ function setArea(f) {
   status(`Area set${f.properties && f.properties.name ? ': ' + f.properties.name : ''} (${km2.toFixed(2)} km²). ${km2 > 30 ? 'Large area – data fetch may be slow; consider drawing a smaller rectangle.' : 'Now pick difficulty and Generate.'}`);
   if (!S.start) { const c = turf.centroid(f).geometry.coordinates; }
 }
-let drawMode = null, drawPts = [];
-function endDraw() { drawMode = null; drawPts = []; drawLayer.clearLayers(); ['drawRect','drawPoly','startTap'].forEach(i => $(i).classList.remove('active')); map.getContainer().style.cursor = ''; }
-$('drawRect').onclick = () => { endDraw(); drawMode = 'rect'; $('drawRect').classList.add('active'); status('Tap two opposite corners.'); map.getContainer().style.cursor = 'crosshair'; };
-$('drawPoly').onclick = () => { endDraw(); drawMode = 'poly'; $('drawPoly').classList.add('active'); status('Tap vertices; tap the first point (or press Polygon again) to finish.'); map.getContainer().style.cursor = 'crosshair'; };
-$('startTap').onclick = () => { endDraw(); drawMode = 'start'; $('startTap').classList.add('active'); status('Tap the map to set the start.'); };
-$('clearArea').onclick = () => { endDraw(); S.area = null; areaLayer.clearLayers(); courseLayer.clearLayers(); trailLayer.clearLayers(); status('Area cleared.'); };
+/* ---------- touch-friendly drawing (v2) ----------
+   Draw modes: poly | rect | circle | start. While drawing: map dragging + dbl-tap zoom off,
+   panel collapsed, big bottom toolbar + banner. Each tap = one point. */
+let drawMode = null, drawPts = [], circleCenter = null, panelWasOpen = null;
+const BANNER = {
+  poly:'Tap points around the area, then tap Done',
+  rect:'Tap two opposite corners of the rectangle',
+  circle:'Tap the map to place the circle centre (or use “Around me”), set the radius, then tap Done',
+  start:'Tap the map to set the start'
+};
+function collapsePanel(on) {
+  const b = $('panelBody');
+  if (on) { panelWasOpen = !b.hidden; b.hidden = true; $('togglePanel').textContent = '▸'; $('panel').classList.add('drawing'); }
+  else { $('panel').classList.remove('drawing'); if (panelWasOpen) { b.hidden = false; $('togglePanel').textContent = '▾'; } panelWasOpen = null; }
+}
+function startDraw(mode) {
+  endDraw(true);
+  drawMode = mode; drawPts = []; circleCenter = null;
+  map.dragging.disable(); map.doubleClickZoom.disable(); if (map.tap) map.tap.disable();
+  map.getContainer().classList.add('drawing-map');
+  collapsePanel(true);
+  $('drawBar').hidden = false; $('drawBar').dataset.mode = mode;
+  $('drawBanner').textContent = BANNER[mode];
+  $('circleRow').hidden = mode !== 'circle';
+  $('dUndo').hidden = $('dClear').hidden = !(mode === 'poly' || mode === 'rect');
+  $('dDone').hidden = mode === 'rect' || mode === 'start';
+  renderDraw();
+}
+function endDraw(silent) {
+  const was = drawMode;
+  drawMode = null; drawPts = []; circleCenter = null; drawLayer.clearLayers();
+  map.dragging.enable(); map.doubleClickZoom.enable();
+  map.getContainer().classList.remove('drawing-map');
+  $('drawBar').hidden = true;
+  if (was) collapsePanel(false);
+}
+const ll = q => [q[1], q[0]];
+function renderDraw() {
+  drawLayer.clearLayers();
+  let info = '';
+  if (drawMode === 'poly' || drawMode === 'rect') {
+    if (drawMode === 'poly' && drawPts.length >= 2)
+      L.polygon(drawPts.map(ll), { color:MAGENTA, weight:3, fillOpacity:0.15, dashArray: drawPts.length < 3 ? '6 6' : null, interactive:false }).addTo(drawLayer);
+    if (drawMode === 'rect' && drawPts.length === 1) info = ' — now tap the opposite corner';
+    drawPts.forEach((q, i) => L.circleMarker(ll(q), { radius: i === 0 ? 12 : 9, color:'#fff', weight:3, fillColor: i === 0 ? '#ff9800' : MAGENTA, fillOpacity:1, interactive:false }).addTo(drawLayer));
+    if (drawMode === 'poly') info = ` — ${drawPts.length} point${drawPts.length === 1 ? '' : 's'}` + (drawPts.length >= 3 ? ' (tap the orange first point or Done to close)' : drawPts.length ? ` (need ${3 - drawPts.length} more)` : '');
+  }
+  if (drawMode === 'circle') {
+    const r = +$('circR').value; $('circROut').textContent = r >= 1000 ? (r/1000).toFixed(2).replace(/0$/,'') + ' km' : r + ' m';
+    if (circleCenter) { L.circle(ll(circleCenter), { radius:r, color:MAGENTA, weight:3, fillOpacity:0.15, interactive:false }).addTo(drawLayer);
+      L.circleMarker(ll(circleCenter), { radius:8, color:'#fff', weight:3, fillColor:MAGENTA, fillOpacity:1, interactive:false }).addTo(drawLayer); }
+    else info = ' — no centre yet';
+  }
+  $('drawBanner').textContent = BANNER[drawMode] + info;
+  $('dUndo').disabled = !drawPts.length; $('dClear').disabled = !drawPts.length;
+  $('dDone').disabled = drawMode === 'poly' ? drawPts.length < 3 : drawMode === 'circle' ? !circleCenter : true;
+}
+function finishPoly() { if (drawPts.length < 3) return; const ring = drawPts.concat([drawPts[0]]); endDraw(); setArea(turf.feature(turf.polygon([ring]).geometry, { name:'Drawn area' })); }
+function finishRect() { const [a,b] = drawPts; endDraw(); if (Math.abs(a[0]-b[0]) < 1e-6 || Math.abs(a[1]-b[1]) < 1e-6) return status('Rectangle too thin – try again.'); setArea(turf.feature(turf.bboxPolygon([Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]).geometry, { name:'Rectangle' })); }
+function finishCircle() { if (!circleCenter) return; const r = +$('circR').value, c = circleCenter; endDraw(); setArea(turf.feature(turf.circle(c, r/1000, { steps:64, units:'kilometers' }).geometry, { name:`Circle ${r} m` })); }
+function useView() {
+  endDraw(); const b = map.getBounds();
+  if (map.getZoom() < 12) return status('Zoom in closer first (the view is too large for a course area).');
+  setArea(turf.feature(turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]).geometry, { name:'Map view' }));
+}
 map.on('click', e => {
+  if (!drawMode) return;
   const p = [e.latlng.lng, e.latlng.lat];
-  if (drawMode === 'start') { setStart(e.latlng.lat, e.latlng.lng, 'tap'); endDraw(); return; }
-  if (drawMode === 'rect') {
-    drawPts.push(p); L.circleMarker(e.latlng, { radius:4, color:MAGENTA }).addTo(drawLayer);
-    if (drawPts.length === 2) { const [a,b] = drawPts; endDraw(); setArea(turf.bboxPolygon([Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])])); }
-    return;
-  }
+  if (drawMode === 'start') { endDraw(); setStart(e.latlng.lat, e.latlng.lng, 'tap'); return; }
+  if (drawMode === 'rect') { drawPts.push(p); if (drawPts.length === 2) return finishRect(); return renderDraw(); }
   if (drawMode === 'poly') {
-    if (drawPts.length >= 3 && map.latLngToContainerPoint(L.latLng(drawPts[0][1], drawPts[0][0])).distanceTo(e.containerPoint) < 20) return finishPoly();
-    drawPts.push(p); drawLayer.clearLayers();
-    L.polyline(drawPts.map(q => [q[1],q[0]]), { color:MAGENTA }).addTo(drawLayer);
-    drawPts.forEach(q => L.circleMarker([q[1],q[0]], { radius:4, color:MAGENTA }).addTo(drawLayer));
+    if (drawPts.length >= 3 && map.latLngToContainerPoint(L.latLng(drawPts[0][1], drawPts[0][0])).distanceTo(e.containerPoint) < 32) return finishPoly();
+    drawPts.push(p); return renderDraw();
   }
+  if (drawMode === 'circle') { circleCenter = p; renderDraw(); }
 });
-function finishPoly() { if (drawPts.length < 3) return endDraw(); const ring = drawPts.concat([drawPts[0]]); endDraw(); setArea(turf.polygon([ring])); }
-$('drawPoly').addEventListener('click', () => {}, true);
-const _dp = $('drawPoly').onclick; $('drawPoly').onclick = () => { if (drawMode === 'poly' && drawPts.length >= 3) return finishPoly(); _dp(); };
+$('drawPoly').onclick = () => startDraw('poly');
+$('drawRect').onclick = () => startDraw('rect');
+$('drawCircle').onclick = () => startDraw('circle');
+$('useView').onclick = useView;
+$('startTap').onclick = () => startDraw('start');
+$('dUndo').onclick = () => { drawPts.pop(); renderDraw(); };
+$('dClear').onclick = () => { drawPts = []; renderDraw(); };
+$('dCancel').onclick = () => { endDraw(); status('Drawing cancelled.'); };
+$('dDone').onclick = () => drawMode === 'poly' ? finishPoly() : drawMode === 'circle' ? finishCircle() : null;
+$('circR').oninput = renderDraw;
+$('circMe').onclick = () => { $('drawBanner').textContent = 'Getting your location…';
+  navigator.geolocation.getCurrentPosition(pos => { if (drawMode !== 'circle') return; circleCenter = [pos.coords.longitude, pos.coords.latitude]; map.setView(ll(circleCenter), Math.max(map.getZoom(), 14)); renderDraw(); },
+    err => { $('drawBanner').textContent = 'Location error: ' + err.message; }, { enableHighAccuracy:true, timeout:20000 }); };
+$('clearArea').onclick = () => { endDraw(); S.area = null; areaLayer.clearLayers(); courseLayer.clearLayers(); trailLayer.clearLayers(); status('Area cleared.'); };
 
 $('pickPark').onclick = async () => {
   const b = map.getBounds(); if (map.getZoom() < 11) return status('Zoom in closer (search for a place first).');
@@ -495,4 +561,4 @@ $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').
   else status('Search for a park, or zoom in and draw an area.');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
 })();
-window.App = { S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
+window.App = { startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
