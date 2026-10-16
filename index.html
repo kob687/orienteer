@@ -11,71 +11,88 @@
 </head><body>
 <div id="map"></div>
 
-<div id="panel">
-  <div class="row head"><b>🧭 Orienteer</b><button id="togglePanel" class="sm">▾</button></div>
-  <div id="panelBody">
-  <div class="row"><input id="q" placeholder="Search park, preserve, trail…" enterkeyhint="search"><button id="searchBtn">Go</button></div>
-  <div id="results"></div>
-  <div class="label">1 · Area</div>
-  <div class="row wrap">
-    <button id="drawPoly">✏️ Draw area</button>
-    <button id="drawRect">▭ Rectangle</button>
-    <button id="drawCircle">◯ Circle</button>
-    <button id="useView">⛶ Use current map view</button>
-    <button id="pickPark">🌲 Parks in view</button>
-    <button id="clearArea" class="sm">✕ Clear</button>
-  </div>
-  <div id="parks"></div>
-  <div class="label">2 · Difficulty</div>
-  <div class="row seg" id="diff">
-    <button data-d="easy" class="on">Easy<small>0–10 m</small></button>
-    <button data-d="medium">Medium<small>15–50 m</small></button>
-    <button data-d="hard">Hard<small>50–150 m</small></button>
-    <button data-d="expert">Expert<small>150 m+</small></button>
-  </div>
-  <div class="row"><label>Controls <b id="nOut">8</b></label><input type="range" id="n" min="5" max="15" value="8"></div>
-  <div class="row"><label>Target length <b id="lenOut">3.0</b> km</label><input type="range" id="len" min="0.5" max="12" step="0.5" value="3"></div>
-  <div class="row wrap small">
-    <label><input type="checkbox" id="roads" checked> roads count as trails</label>
-    <label><input type="checkbox" id="scoreMode"> score / any order</label>
-  </div>
-  <div class="label">3 · Start</div>
-  <div class="row wrap"><button id="startGps">📍 My location</button><button id="startTap">👆 Tap map</button><span id="startInfo" class="small"></span></div>
-  <div class="row wrap">
-    <button id="gen" class="primary">Generate course</button>
-    <button id="regen">↻ Regenerate</button>
-  </div>
-  <div class="row wrap">
-    <button id="run" class="primary">▶ Run</button>
-    <button id="save">💾 Save</button><button id="load">📂 Load</button>
-    <button id="gpx">GPX</button><button id="print">🖨 Print</button>
-    <button id="cacheTiles" class="sm">⬇ Offline tiles</button>
-  </div>
-  <div id="status" class="small"></div>
-  <div id="legend" class="small"></div>
-  </div>
+<div id="tools" aria-label="Map tools">
+  <button id="tSearch" title="Search" aria-label="Search">🔍</button>
+  <button id="tLayers" title="Map layers" aria-label="Layers">🗺️</button>
+  <button id="tLocate" title="Locate me" aria-label="Locate me">📍</button>
+  <button id="tDraw" title="Draw area" aria-label="Draw area">✏️</button>
 </div>
+
+<div id="searchBox" hidden>
+  <div class="row"><input id="q" placeholder="Search park, preserve, trail…" enterkeyhint="search"><button id="searchBtn">Go</button><button id="searchClose" aria-label="Close">✕</button></div>
+  <div id="results"></div>
+  <div id="parks"></div>
+</div>
+
+<div id="layerBox" hidden></div>
+
+<div id="crosshair" hidden><svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="9" fill="none" stroke="#fff" stroke-width="5"/><circle cx="22" cy="22" r="9" fill="none" stroke="#c4007a" stroke-width="2.5"/><path d="M22 0v13M22 31v13M0 22h13M31 22h13" stroke="#fff" stroke-width="5"/><path d="M22 0v13M22 31v13M0 22h13M31 22h13" stroke="#c4007a" stroke-width="2.5"/></svg></div>
 
 <div id="drawBar" hidden>
   <div id="drawBanner"></div>
-  <div class="row" id="circleRow" hidden><label>Radius <b id="circROut">500 m</b></label><input type="range" id="circR" min="250" max="3000" step="50" value="500"><button id="circMe">📍 Around me</button></div>
-  <div class="row dbtns"><button id="dUndo">↶ Undo point</button><button id="dClear">Clear</button><button id="dDone" class="primary">✓ Done</button><button id="dCancel">✕ Cancel</button></div>
+  <div class="dbtns">
+    <button id="dCancel" aria-label="Cancel">✕</button>
+    <button id="dUndo" aria-label="Undo">↶</button>
+    <button id="dAdd" class="primary">+ Add point</button>
+    <button id="dDone" class="ok" aria-label="Done">✓</button>
+  </div>
+</div>
+
+<div id="sheet" data-snap="peek">
+  <div id="handle" role="button" aria-label="Expand or collapse panel"><span></span></div>
+  <div id="peek">
+    <div id="summary">Pick an area to start</div>
+    <button id="peekRegen" hidden aria-label="Regenerate">↻</button>
+    <button id="peekAction" class="primary">✏️ Draw area</button>
+  </div>
+  <div id="sheetBody">
+    <div id="status" class="small"></div>
+    <div class="label">1 · Area</div>
+    <div class="grid4">
+      <button id="drawPoly">✏️<small>Draw</small></button>
+      <button id="pickPark">🌲<small>Search park</small></button>
+      <button id="useView">⛶<small>This view</small></button>
+      <button id="circMe">◎<small>Around me</small></button>
+    </div>
+    <div class="label">2 · Course</div>
+    <div class="grid4 seg" id="diff">
+      <button data-d="easy" class="on" aria-pressed="true">Easy<small>0–10 m</small></button>
+      <button data-d="medium" aria-pressed="false">Medium<small>15–50 m</small></button>
+      <button data-d="hard" aria-pressed="false">Hard<small>50–150 m</small></button>
+      <button data-d="expert" aria-pressed="false">Expert<small>150 m+</small></button>
+    </div>
+    <div class="row"><label>Controls <b id="nOut">8</b></label><input type="range" id="n" min="5" max="15" value="8"></div>
+    <div class="row"><label>Length <b id="lenOut">3.0</b> km</label><input type="range" id="len" min="0.5" max="12" step="0.5" value="3"></div>
+    <div class="label">3 · Go</div>
+    <button id="gen" class="primary big">Generate course</button>
+    <div class="row two"><button id="run" class="primary">▶ Start run</button><button id="regen">↻ Regenerate</button></div>
+    <div id="legend" class="small"></div>
+    <details id="opts"><summary>⚙️ Options</summary>
+      <div class="row"><label>Around-me radius <b id="circROut">500 m</b></label><input type="range" id="circR" min="250" max="3000" step="50" value="500"></div>
+      <div class="row wrap"><span class="small">Start:</span><button id="startGps">📍 My location</button><button id="startTap">⌖ Pick on map</button></div>
+      <div id="startInfo" class="small"></div>
+      <div class="row wrap"><label class="chk"><input type="checkbox" id="roads" checked> roads count as trails</label><label class="chk"><input type="checkbox" id="scoreMode"> score / any order</label></div>
+      <div class="row wrap"><button id="save">💾 Save</button><button id="load">📂 Load</button><button id="gpx">GPX</button><button id="print">🖨 Print</button><button id="cacheTiles">⬇ Offline tiles</button><button id="clearArea">✕ Clear area</button></div>
+    </details>
+  </div>
 </div>
 
 <div id="runbar" hidden>
-  <div class="row"><b id="rClock">00:00</b><span id="rNext"></span><span id="rAcc" class="small"></span></div>
+  <div class="row rhead"><b id="rClock">00:00</b><span id="rNext"></span><span id="rAcc" class="small"></span><button id="rToggle" aria-label="Collapse run bar">▾</button></div>
   <div class="row small coords" id="rCoords" title="Tap to switch format"><span id="rNextC"></span><span id="rMe"></span></div>
-  <div class="row wrap small">
-    <label>Radius <b id="radOut">auto</b><input type="range" id="rad" min="4" max="35" value="4" step="1"></label>
-    <label><input type="checkbox" id="hidePos"> hide my position</label>
+  <div id="rBody">
+    <div class="row wrap small">
+      <label>Radius <b id="radOut">auto</b><input type="range" id="rad" min="4" max="35" value="4" step="1"></label>
+      <label class="chk"><input type="checkbox" id="hidePos"> hide my position</label>
+    </div>
+    <div class="row wrap">
+      <button id="rStart" class="primary">Start clock</button>
+      <button id="hint">🧭 Hint (+<span id="penOut">60</span>s)</button>
+      <button id="courseList">📋 List</button>
+      <button id="rStop">■ Finish/Quit</button>
+    </div>
+    <div id="rMsg" class="small"></div>
   </div>
-  <div class="row wrap">
-    <button id="rStart" class="primary">Start clock</button>
-    <button id="hint">🧭 Hint (+<span id="penOut">60</span>s)</button>
-    <button id="courseList">📋 Course list</button>
-    <button id="rStop">■ Finish/Quit</button>
-  </div>
-  <div id="rMsg" class="small"></div>
 </div>
 
 <div id="modal" hidden><div class="card"><div id="modalBody"></div><button id="modalClose">Close</button></div></div>

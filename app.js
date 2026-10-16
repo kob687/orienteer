@@ -8,7 +8,7 @@ const S = { area:null, data:null, start:null, course:null, diff:'easy', run:null
 const status = (t) => { $('status').textContent = t; console.log('[status]', t); };
 
 /* ---------- map ---------- */
-const map = L.map('map', { zoomControl:true }).setView([39.5,-98.35], 4);
+const map = L.map('map', { zoomControl:false }).setView([39.5,-98.35], 4);
 const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'});
 const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagery © Esri'});
 const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:19,maxNativeZoom:16,subdomains:'abc',attribution:'Map: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA) · Data: © OpenStreetMap contributors, SRTM'});
@@ -16,8 +16,7 @@ const usgs = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/U
 const BASES = { 'Topo (OpenTopoMap)':topo, 'Topo US (USGS)':usgs, 'Street (OSM)':osm, 'Satellite (Esri)':sat };
 (BASES[localStorage.getItem('orienteer.base')] || topo).addTo(map);
 map.on('baselayerchange', e => localStorage.setItem('orienteer.base', e.name));
-L.control.layers(BASES, null, { position:'topright' }).addTo(map);
-map.attributionControl.setPrefix(false); map.zoomControl.setPosition('topright');
+map.attributionControl.setPrefix(false); map.attributionControl.setPosition('topleft');
 const areaLayer = L.layerGroup().addTo(map), trailLayer = L.layerGroup().addTo(map), courseLayer = L.layerGroup().addTo(map), meLayer = L.layerGroup().addTo(map), drawLayer = L.layerGroup().addTo(map);
 
 /* ---------- search (Nominatim) ---------- */
@@ -32,8 +31,8 @@ async function search() {
     const hasPoly = it.geojson && /Polygon/.test(it.geojson.type);
     d.textContent = it.display_name + (hasPoly ? '  ▸ use boundary' : '');
     d.onclick = () => {
-      $('results').innerHTML = '';
-      const b = it.boundingbox.map(Number); map.fitBounds([[b[0],b[2]],[b[1],b[3]]]);
+      $('results').innerHTML = ''; closePops();
+      const b = it.boundingbox.map(Number); fitTo([[b[0],b[2]],[b[1],b[3]]]);
       if (hasPoly) setArea(turf.feature(it.geojson, { name: it.display_name.split(',')[0] }));
     };
     $('results').appendChild(d);
@@ -93,116 +92,138 @@ function elementToPolygons(el) {
 }
 
 /* ---------- area selection ---------- */
-function setArea(f) {
+function setArea(f, noFit) {
   if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') return status('Area must be a polygon.');
   S.area = f; S.data = null; S.course = null; courseLayer.clearLayers(); trailLayer.clearLayers();
   areaLayer.clearLayers();
   L.geoJSON(f, { style:{ color:'#333', weight:2, dashArray:'6 4', fill:true, fillOpacity:0.05 }, interactive:false }).addTo(areaLayer);
-  map.fitBounds(L.geoJSON(f).getBounds(), { padding:[20,20] });
+  if (!noFit) fitTo(L.geoJSON(f).getBounds());
   const km2 = turf.area(f) / 1e6;
   status(`Area set${f.properties && f.properties.name ? ': ' + f.properties.name : ''} (${km2.toFixed(2)} km²). ${km2 > 30 ? 'Large area – data fetch may be slow; consider drawing a smaller rectangle.' : 'Now pick difficulty and Generate.'}`);
-  if (!S.start) { const c = turf.centroid(f).geometry.coordinates; }
+  refreshUI(); if ($('sheet').dataset.snap === 'peek') setSnap('half');
 }
-/* ---------- touch-friendly drawing (v2) ----------
-   Draw modes: poly | rect | circle | start. While drawing: map dragging + dbl-tap zoom off,
-   panel collapsed, big bottom toolbar + banner. Each tap = one point. */
-let drawMode = null, drawPts = [], circleCenter = null, panelWasOpen = null;
-const BANNER = {
-  poly:'Tap points around the area, then tap Done',
-  rect:'Tap two opposite corners of the rectangle',
-  circle:'Tap the map to place the circle centre (or use “Around me”), set the radius, then tap Done',
-  start:'Tap the map to set the start'
-};
-function collapsePanel(on) {
-  const b = $('panelBody');
-  if (on) { panelWasOpen = !b.hidden; b.hidden = true; $('togglePanel').textContent = '▸'; $('panel').classList.add('drawing'); }
-  else { $('panel').classList.remove('drawing'); if (panelWasOpen) { b.hidden = false; $('togglePanel').textContent = '▾'; } panelWasOpen = null; }
-}
+/* ---------- onX-style drawing (v4) ----------
+   Full-screen map, fixed centre crosshair. Pan the map under it and tap “+ Add point”.
+   Map pan/zoom stays enabled. Tapping the map also adds a point, but only if the pointer moved < 10 px. */
+let drawMode = null, drawPts = [];
 function startDraw(mode) {
-  endDraw(true);
-  drawMode = mode; drawPts = []; circleCenter = null;
-  map.dragging.disable(); map.doubleClickZoom.disable(); if (map.tap) map.tap.disable();
-  map.getContainer().classList.add('drawing-map');
-  collapsePanel(true);
-  $('drawBar').hidden = false; $('drawBar').dataset.mode = mode;
-  $('drawBanner').textContent = BANNER[mode];
-  $('circleRow').hidden = mode !== 'circle';
-  $('dUndo').hidden = $('dClear').hidden = !(mode === 'poly' || mode === 'rect');
-  $('dDone').hidden = mode === 'rect' || mode === 'start';
-  renderDraw();
+  endDraw(true); closePops();
+  drawMode = mode; drawPts = [];
+  $('crosshair').hidden = false; $('drawBar').hidden = false; $('sheet').hidden = true; $('tDraw').classList.add('on');
+  $('dUndo').hidden = $('dDone').hidden = mode === 'start';
+  $('dAdd').textContent = mode === 'start' ? '⌖ Set start here' : '+ Add point';
+  map.on('move', renderDraw); renderDraw();
 }
-function endDraw(silent) {
-  const was = drawMode;
-  drawMode = null; drawPts = []; circleCenter = null; drawLayer.clearLayers();
-  map.dragging.enable(); map.doubleClickZoom.enable();
-  map.getContainer().classList.remove('drawing-map');
-  $('drawBar').hidden = true;
-  if (was) collapsePanel(false);
+function endDraw() {
+  if (!drawMode) return;
+  map.off('move', renderDraw);
+  drawMode = null; drawPts = []; drawLayer.clearLayers();
+  $('crosshair').hidden = true; $('drawBar').hidden = true; $('sheet').hidden = !!S.run; $('tDraw').classList.remove('on');
 }
 const ll = q => [q[1], q[0]];
 function renderDraw() {
+  if (!drawMode) return;
   drawLayer.clearLayers();
-  let info = '';
-  if (drawMode === 'poly' || drawMode === 'rect') {
-    if (drawMode === 'poly' && drawPts.length >= 2)
-      L.polygon(drawPts.map(ll), { color:MAGENTA, weight:3, fillOpacity:0.15, dashArray: drawPts.length < 3 ? '6 6' : null, interactive:false }).addTo(drawLayer);
-    if (drawMode === 'rect' && drawPts.length === 1) info = ' — now tap the opposite corner';
-    drawPts.forEach((q, i) => L.circleMarker(ll(q), { radius: i === 0 ? 12 : 9, color:'#fff', weight:3, fillColor: i === 0 ? '#ff9800' : MAGENTA, fillOpacity:1, interactive:false }).addTo(drawLayer));
-    if (drawMode === 'poly') info = ` — ${drawPts.length} point${drawPts.length === 1 ? '' : 's'}` + (drawPts.length >= 3 ? ' (tap the orange first point or Done to close)' : drawPts.length ? ` (need ${3 - drawPts.length} more)` : '');
+  if (drawMode === 'start') { $('drawBanner').textContent = 'Move the map so the crosshair is on the start'; return; }
+  const c = map.getCenter(), cur = [c.lng, c.lat], live = drawPts.concat([cur]);
+  if (live.length >= 3) L.polygon(live.map(ll), { color:MAGENTA, weight:0, fillOpacity:0.12, interactive:false }).addTo(drawLayer);
+  if (drawPts.length >= 2) L.polyline(drawPts.map(ll), { color:MAGENTA, weight:3, interactive:false }).addTo(drawLayer);
+  if (drawPts.length) {
+    L.polyline([ll(drawPts[drawPts.length-1]), [c.lat, c.lng]], { color:MAGENTA, weight:3, dashArray:'6 6', interactive:false }).addTo(drawLayer);
+    if (drawPts.length >= 2) L.polyline([[c.lat, c.lng], ll(drawPts[0])], { color:MAGENTA, weight:2, opacity:0.5, dashArray:'2 6', interactive:false }).addTo(drawLayer);
   }
-  if (drawMode === 'circle') {
-    const r = +$('circR').value; $('circROut').textContent = r >= 1000 ? (r/1000).toFixed(2).replace(/0$/,'') + ' km' : r + ' m';
-    if (circleCenter) { L.circle(ll(circleCenter), { radius:r, color:MAGENTA, weight:3, fillOpacity:0.15, interactive:false }).addTo(drawLayer);
-      L.circleMarker(ll(circleCenter), { radius:8, color:'#fff', weight:3, fillColor:MAGENTA, fillOpacity:1, interactive:false }).addTo(drawLayer); }
-    else info = ' — no centre yet';
-  }
-  $('drawBanner').textContent = BANNER[drawMode] + info;
-  $('dUndo').disabled = !drawPts.length; $('dClear').disabled = !drawPts.length;
-  $('dDone').disabled = drawMode === 'poly' ? drawPts.length < 3 : drawMode === 'circle' ? !circleCenter : true;
+  drawPts.forEach((q, i) => L.circleMarker(ll(q), { radius: i === 0 ? 10 : 7, color:'#fff', weight:3, fillColor: i === 0 ? '#ff9800' : MAGENTA, fillOpacity:1, interactive:false }).addTo(drawLayer));
+  const n = drawPts.length;
+  $('drawBanner').textContent = n === 0 ? 'Pan the map to put the crosshair on a corner, then tap + Add point' : n < 3 ? `${n} point${n>1?'s':''} — add ${3-n} more` : `${n} points · ${(turf.area(turf.polygon([live.concat([live[0]])]))/1e6).toFixed(2)} km² — tap ✓ when done`;
+  $('dUndo').disabled = !n; $('dDone').disabled = n < 3;
 }
-function finishPoly() { if (drawPts.length < 3) return; const ring = drawPts.concat([drawPts[0]]); endDraw(); setArea(turf.feature(turf.polygon([ring]).geometry, { name:'Drawn area' })); }
-function finishRect() { const [a,b] = drawPts; endDraw(); if (Math.abs(a[0]-b[0]) < 1e-6 || Math.abs(a[1]-b[1]) < 1e-6) return status('Rectangle too thin – try again.'); setArea(turf.feature(turf.bboxPolygon([Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]).geometry, { name:'Rectangle' })); }
-function finishCircle() { if (!circleCenter) return; const r = +$('circR').value, c = circleCenter; endDraw(); setArea(turf.feature(turf.circle(c, r/1000, { steps:64, units:'kilometers' }).geometry, { name:`Circle ${r} m` })); }
+function addPoint(p) {
+  if (drawMode === 'start') { endDraw(); setStart(p[1], p[0], 'map'); refreshUI(); setSnap('half'); return; }
+  if (drawPts.length >= 3 && map.latLngToContainerPoint(L.latLng(drawPts[0][1], drawPts[0][0])).distanceTo(map.latLngToContainerPoint(L.latLng(p[1], p[0]))) < 24) return finishPoly();
+  drawPts.push(p); if (navigator.vibrate) navigator.vibrate(15); renderDraw();
+}
+function finishPoly() { if (drawPts.length < 3) return; const ring = drawPts.concat([drawPts[0]]); endDraw(); setArea(turf.feature(turf.polygon([ring]).geometry, { name:'Drawn area' })); setSnap('half'); }
 function useView() {
   endDraw(); const b = map.getBounds();
-  if (map.getZoom() < 12) return status('Zoom in closer first (the view is too large for a course area).');
-  setArea(turf.feature(turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]).geometry, { name:'Map view' }));
+  if (map.getZoom() < 12) { setSnap('half'); return status('Zoom in closer first (the view is too large for a course area).'); }
+  setArea(turf.feature(turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]).geometry, { name:'Map view' }), true);
 }
-map.on('click', e => {
-  if (!drawMode) return;
-  const p = [e.latlng.lng, e.latlng.lat];
-  if (drawMode === 'start') { endDraw(); setStart(e.latlng.lat, e.latlng.lng, 'tap'); return; }
-  if (drawMode === 'rect') { drawPts.push(p); if (drawPts.length === 2) return finishRect(); return renderDraw(); }
-  if (drawMode === 'poly') {
-    if (drawPts.length >= 3 && map.latLngToContainerPoint(L.latLng(drawPts[0][1], drawPts[0][0])).distanceTo(e.containerPoint) < 32) return finishPoly();
-    drawPts.push(p); return renderDraw();
-  }
-  if (drawMode === 'circle') { circleCenter = p; renderDraw(); }
-});
-$('drawPoly').onclick = () => startDraw('poly');
-$('drawRect').onclick = () => startDraw('rect');
-$('drawCircle').onclick = () => startDraw('circle');
+function circleAround(lat, lon) { const r = +$('circR').value; setArea(turf.feature(turf.circle([lon, lat], r/1000, { steps:64, units:'kilometers' }).geometry, { name:`${r} m around me` })); }
+// tap-to-add guarded against pans: only taps whose pointer moved < 10 px count
+let tapDown = null, tapMoved = false;
+const mc = map.getContainer();
+mc.addEventListener('pointerdown', e => { if (e.isPrimary) { tapDown = [e.clientX, e.clientY]; tapMoved = false; } }, true);
+mc.addEventListener('pointermove', e => { if (tapDown && e.isPrimary && Math.hypot(e.clientX-tapDown[0], e.clientY-tapDown[1]) >= 10) tapMoved = true; }, true);
+mc.addEventListener('pointerup', e => { if (tapDown && e.isPrimary && Math.hypot(e.clientX-tapDown[0], e.clientY-tapDown[1]) >= 10) tapMoved = true; }, true);
+map.on('click', e => { if (!drawMode || tapMoved || !tapDown) return; tapDown = null; addPoint([e.latlng.lng, e.latlng.lat]); });
+$('dAdd').onclick = () => { const c = map.getCenter(); addPoint([c.lng, c.lat]); };
+$('dUndo').onclick = () => { drawPts.pop(); renderDraw(); };
+$('dCancel').onclick = () => { endDraw(); status('Drawing cancelled.'); };
+$('dDone').onclick = finishPoly;
+$('drawPoly').onclick = $('tDraw').onclick = () => drawMode ? endDraw() : startDraw('poly');
 $('useView').onclick = useView;
 $('startTap').onclick = () => startDraw('start');
-$('dUndo').onclick = () => { drawPts.pop(); renderDraw(); };
-$('dClear').onclick = () => { drawPts = []; renderDraw(); };
-$('dCancel').onclick = () => { endDraw(); status('Drawing cancelled.'); };
-$('dDone').onclick = () => drawMode === 'poly' ? finishPoly() : drawMode === 'circle' ? finishCircle() : null;
-$('circR').oninput = renderDraw;
-$('circMe').onclick = () => { $('drawBanner').textContent = 'Getting your location…';
-  navigator.geolocation.getCurrentPosition(pos => { if (drawMode !== 'circle') return; circleCenter = [pos.coords.longitude, pos.coords.latitude]; map.setView(ll(circleCenter), Math.max(map.getZoom(), 14)); renderDraw(); },
-    err => { $('drawBanner').textContent = 'Location error: ' + err.message; }, { enableHighAccuracy:true, timeout:20000 }); };
-$('clearArea').onclick = () => { endDraw(); S.area = null; areaLayer.clearLayers(); courseLayer.clearLayers(); trailLayer.clearLayers(); status('Area cleared.'); };
+$('circR').oninput = () => { const r = +$('circR').value; $('circROut').textContent = r >= 1000 ? (r/1000).toFixed(2).replace(/0$/,'') + ' km' : r + ' m'; };
+function locate(cb) { status('Getting your location…');
+  navigator.geolocation.getCurrentPosition(p => { const { latitude:lat, longitude:lon, accuracy:acc } = p.coords; showMe(lat, lon, acc); cb(lat, lon, acc); },
+    err => status('Location error: ' + err.message), { enableHighAccuracy:true, timeout:20000 }); }
+function showMe(lat, lon, acc) { if (S.run) return; meLayer.clearLayers(); L.circle([lat, lon], { radius:acc, color:'#2a7fff', weight:1, fillOpacity:0.1, interactive:false }).addTo(meLayer); L.circleMarker([lat, lon], { radius:7, color:'#fff', weight:2, fillColor:'#2a7fff', fillOpacity:1, interactive:false }).addTo(meLayer); }
+$('circMe').onclick = () => locate((lat, lon) => circleAround(lat, lon));
+$('tLocate').onclick = () => { if (S.run && S.run.pos) return map.setView([S.run.pos.coords.latitude, S.run.pos.coords.longitude], Math.max(map.getZoom(), 16));
+  locate((lat, lon) => { map.setView([lat, lon], Math.max(map.getZoom(), 15)); status('Located.'); }); };
+$('clearArea').onclick = () => { endDraw(); S.area = null; S.course = null; areaLayer.clearLayers(); courseLayer.clearLayers(); trailLayer.clearLayers(); status('Area cleared.'); refreshUI(); };
+
+/* ---------- popovers: search + layers ---------- */
+function closePops() { $('searchBox').hidden = true; $('layerBox').hidden = true; $('tSearch').classList.remove('on'); $('tLayers').classList.remove('on'); }
+$('tSearch').onclick = () => { const o = $('searchBox').hidden; closePops(); if (o) { $('searchBox').hidden = false; $('tSearch').classList.add('on'); $('q').focus(); } };
+$('searchClose').onclick = closePops;
+$('tLayers').onclick = () => { const o = $('layerBox').hidden; closePops(); if (!o) return;
+  const box = $('layerBox'); box.innerHTML = '';
+  Object.entries(BASES).forEach(([name, lyr]) => { const b = document.createElement('button'); b.textContent = name; b.classList.toggle('on', map.hasLayer(lyr));
+    b.onclick = () => { Object.values(BASES).forEach(x => map.removeLayer(x)); lyr.addTo(map); localStorage.setItem('orienteer.base', name); closePops(); }; box.appendChild(b); });
+  box.hidden = false; $('tLayers').classList.add('on'); };
+
+/* ---------- bottom sheet: peek / half / full ---------- */
+const SNAPS = ['peek', 'half', 'full'];
+function setSnap(s) { $('sheet').dataset.snap = s; }
+function visH(s) { const h = innerHeight; return s === 'full' ? h * 0.88 : s === 'half' ? h * 0.5 : 76; }
+(function sheetDrag() {
+  const sh = $('sheet'); let y0 = null, v0 = 0, moved = false, t0 = 0;
+  const down = e => { if (e.target.closest('button,input') && e.currentTarget !== $('handle')) return; y0 = e.clientY; v0 = visH(sh.dataset.snap); moved = false; t0 = Date.now(); sh.classList.add('dragging'); e.currentTarget.setPointerCapture(e.pointerId); };
+  const move = e => { if (y0 == null) return; const dy = e.clientY - y0; if (Math.abs(dy) > 6) moved = true; const v = Math.max(60, Math.min(innerHeight * 0.88, v0 - dy)); sh.style.height = v + 'px'; };
+  const up = e => { if (y0 == null) return; const dy = e.clientY - y0; sh.classList.remove('dragging'); sh.style.height = ''; y0 = null;
+    if (!moved) { const i = SNAPS.indexOf(sh.dataset.snap); return setSnap(i === 0 ? 'half' : 'peek'); }
+    const v = v0 - dy, fast = Math.abs(dy) / Math.max(1, Date.now() - t0) > 0.6;
+    let t = SNAPS.reduce((b, s) => Math.abs(visH(s) - v) < Math.abs(visH(b) - v) ? s : b, 'peek');
+    if (fast && t === sh.dataset.snap) t = SNAPS[Math.max(0, Math.min(2, SNAPS.indexOf(t) + (dy < 0 ? 1 : -1)))];
+    setSnap(t); };
+  [$('handle'), $('peek')].forEach(el => { el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); });
+})();
+function fitTo(bounds) { const top = 10, bottom = Math.min(visH($('sheet').dataset.snap), innerHeight * 0.5);
+  map.fitBounds(bounds, { paddingTopLeft:[20, top + 20], paddingBottomRight:[70, bottom + 20] }); }
+function refreshUI() {
+  const c = S.course, a = S.area; let sum, act;
+  const stale = c && c.diff !== S.diff;
+  if (stale) { sum = `Course is ${DIFF[c.diff].label} — regenerate for ${DIFF[S.diff].label}?`; act = [`↻ Make ${DIFF[S.diff].label}`, generate]; }
+  else if (c) { sum = `${DIFF[c.diff].label} · ${c.controls.length} controls · ${(c.length/1000).toFixed(2)} km`; act = ['▶ Start run', () => $('run').click()]; }
+  else if (a) { sum = `${(a.properties && a.properties.name) || 'Area'} · ${(turf.area(a)/1e6).toFixed(2)} km² · ${DIFF[S.diff].label}`; act = ['Generate', generate]; }
+  else { sum = 'Pick an area to start'; act = ['✏️ Draw area', () => startDraw('poly')]; }
+  $('summary').textContent = sum; $('peekAction').textContent = act[0]; $('peekAction').onclick = act[1];
+  $('sheet').classList.toggle('stale', !!stale); $('gen').textContent = stale ? `Generate ${DIFF[S.diff].label} course (current is ${DIFF[c.diff].label})` : 'Generate course';
+  $('peekRegen').hidden = !c || stale; $('run').disabled = $('regen').disabled = !c; $('gen').disabled = !a;
+}
+$('peekRegen').onclick = () => generate();
 
 $('pickPark').onclick = async () => {
-  const b = map.getBounds(); if (map.getZoom() < 11) return status('Zoom in closer (search for a place first).');
+  closePops(); $('searchBox').hidden = false; $('tSearch').classList.add('on');
+  const b = map.getBounds(); if (map.getZoom() < 11) { $('parks').innerHTML = '<div>Search for a place, then tap “Search park” again to list parks in view.</div>'; $('q').focus(); return status('Zoom in closer (search for a place first).'); }
   const bb = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
   status('Looking for parks in view…');
   try {
     const js = await overpass(`[out:json][timeout:50];(way["leisure"~"^(park|nature_reserve)$"]["name"](${bb});relation["leisure"~"^(park|nature_reserve)$"]["name"](${bb});way["boundary"="protected_area"]["name"](${bb});relation["boundary"="protected_area"]["name"](${bb}););out tags bb;`);
     const els = js.elements.filter(e => e.bounds).map(e => ({ e, sz:(e.bounds.maxlat-e.bounds.minlat)*(e.bounds.maxlon-e.bounds.minlon) })).sort((a,b) => b.sz - a.sz).slice(0, 25);
     $('parks').innerHTML = els.length ? '' : '<div>No named parks in view.</div>';
-    els.forEach(({e}) => { const d = document.createElement('div'); d.textContent = `${e.tags.name} (${e.tags.leisure || e.tags.boundary})`; d.onclick = () => loadPark(e); $('parks').appendChild(d); });
+    els.forEach(({e}) => { const d = document.createElement('div'); d.textContent = `${e.tags.name} (${e.tags.leisure || e.tags.boundary})`; d.onclick = () => { closePops(); loadPark(e); }; $('parks').appendChild(d); });
     status(`${els.length} parks found – tap one.`);
   } catch (err) { status('Park lookup failed: ' + err.message); }
 };
@@ -217,11 +238,12 @@ async function loadPark(e) {
 /* ---------- start ---------- */
 function setStart(lat, lon, src) {
   S.start = [lon, lat];
+  if (S.area) refreshUI();
   $('startInfo').textContent = `start: ${lat.toFixed(5)}, ${lon.toFixed(5)} (${src})`;
   if (S.course) { S.course = null; courseLayer.clearLayers(); }
   courseLayer.clearLayers(); L.marker([lat, lon], { icon:triIcon() }).addTo(courseLayer);
 }
-$('startGps').onclick = () => { status('Getting location…'); navigator.geolocation.getCurrentPosition(p => { setStart(p.coords.latitude, p.coords.longitude, `GPS ±${Math.round(p.coords.accuracy)} m`); status('Start set from GPS.'); }, err => status('Location error: ' + err.message), { enableHighAccuracy:true, timeout:20000 }); };
+$('startGps').onclick = () => locate((lat, lon, acc) => { setStart(lat, lon, `GPS ±${Math.round(acc)} m`); status('Start set from GPS.'); });
 
 /* ---------- local metric projection + spatial grid ---------- */
 function makeProj(lat0, lon0) { const kx = Math.cos(lat0*Math.PI/180)*111320, ky = 110574;
@@ -376,6 +398,7 @@ function buildCourse(D, cands, n, target, st) {
 async function generate() {
   try {
     if (!S.area) return status('Select an area first (search, draw, or pick a park).');
+    const diff = S.diff;
     const D = await fetchData();
     if (!D.trails.length) status('Warning: no trails found in this area — distances are measured to nothing. Try enabling roads.');
     if (!S.start) { // default start: trail junction / point nearest the area centroid on a trail
@@ -384,10 +407,10 @@ async function generate() {
       const ll = best ? best.ll : c; setStart(ll[1], ll[0], 'auto: trail near centre');
     }
     const st = D.P.f(S.start[0], S.start[1]);
-    status('Generating ' + DIFF[S.diff].label + ' course…');
+    status('Generating ' + DIFF[diff].label + ' course…');
     await new Promise(r => setTimeout(r, 20));
-    const cands = candidates(D, S.diff);
-    if (cands.length < 5) return status(`Only ${cands.length} valid ${DIFF[S.diff].label} control sites in this area. Try a bigger area or a different difficulty.`);
+    const cands = candidates(D, diff);
+    if (cands.length < 5) return status(`Only ${cands.length} valid ${DIFF[diff].label} control sites in this area. Try a bigger area or a different difficulty.`);
     const n = +$('n').value, target = +$('len').value * 1000;
     const b = buildCourse(D, cands, n, target, st);
     if (!b) return status('Could not build a course.');
@@ -396,11 +419,12 @@ async function generate() {
     const controls = b.ord.map((c, i) => { const [lon, lat] = D.P.inv(c.xy[0], c.xy[1]); const pt = turf.point([lon, lat]);
       let dT = tl ? nearestTurf(pt, D) : null;
       return { n:i+1, lat, lon, dTrail: dT, kind:c.kind, wooded: D.wood.has(c.xy[0], c.xy[1]) }; });
-    S.course = { diff:S.diff, start:S.start, controls, length:Math.round(b.len), target, score:$('scoreMode').checked, area:S.area, created:new Date().toISOString() };
-    map.fitBounds(L.latLngBounds([[S.start[1], S.start[0]], ...controls.map(k => [k.lat, k.lon])]).pad(0.25));
+    S.course = { diff:diff, start:S.start, controls, length:Math.round(b.len), target, score:$('scoreMode').checked, area:S.area, created:new Date().toISOString() };
+    setSnap('peek'); refreshUI();
+    fitTo(L.latLngBounds([[S.start[1], S.start[0]], ...controls.map(k => [k.lat, k.lon])]).pad(0.1));
     drawCourse(); saveCourse('orienteer.autosave');
     const short = controls.length < n ? ` (only ${controls.length} fit with 50 m spacing)` : '';
-    status(`${DIFF[S.diff].label}: ${controls.length} controls${short}, ${(b.len/1000).toFixed(2)} km straight-line loop (target ${(target/1000).toFixed(1)} km). Candidates: ${cands.length}.`);
+    status(`${DIFF[diff].label}: ${controls.length} controls${short}, ${(b.len/1000).toFixed(2)} km straight-line loop (target ${(target/1000).toFixed(1)} km). Candidates: ${cands.length}.`);
   } catch (e) { console.error(e); status('Error: ' + e.message); }
 }
 // precise distance to nearest trail using turf.pointToLineDistance over trails near the point
@@ -443,16 +467,22 @@ function drawCourse() {
 map.on('zoomend', () => S.course && drawCourse());
 
 /* ---------- UI wiring ---------- */
-document.querySelectorAll('#diff button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#diff button').forEach(x => x.classList.remove('on')); b.classList.add('on'); S.diff = b.dataset.d;
-  $('hidePos').checked = S.diff !== 'easy';
-});
+/* difficulty: single source of truth = S.diff, set only via setDiff(); persisted; chips mirror it via aria-pressed */
+let hidePosTouched = false;
+function setDiff(d, opts = {}) {
+  if (!DIFF[d]) d = 'easy';
+  S.diff = d; localStorage.setItem('orienteer.diff', d);
+  document.querySelectorAll('#diff button').forEach(x => { const on = x.dataset.d === d; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+  if (!hidePosTouched && !S.run) $('hidePos').checked = d !== 'easy';
+  if (!opts.silent) refreshUI();
+}
+document.querySelectorAll('#diff button').forEach(b => b.addEventListener('click', e => { e.preventDefault(); setDiff(b.dataset.d); }));
 $('n').oninput = () => $('nOut').textContent = $('n').value;
 $('len').oninput = () => $('lenOut').textContent = (+$('len').value).toFixed(1);
 $('gen').onclick = generate; $('regen').onclick = generate;
 $('roads').onchange = () => { S.data = null; };
 $('scoreMode').onchange = () => { if (S.course) { S.course.score = $('scoreMode').checked; drawCourse(); } };
-$('togglePanel').onclick = () => { const b = $('panelBody'); b.hidden = !b.hidden; $('togglePanel').textContent = b.hidden ? '▸' : '▾'; };
+$('rToggle').onclick = () => { const c = $('runbar').classList.toggle('collapsed'); $('rToggle').textContent = c ? '▴' : '▾'; };
 /* ---------- coordinates: decimal degrees / UTM (WGS84) ---------- */
 function toUTM(lat, lon) {
   const a = 6378137, f = 1/298.257223563, k0 = 0.9996, e2 = f*(2-f), ep2 = e2/(1-e2), d = Math.PI/180;
@@ -486,12 +516,11 @@ $('modalClose').onclick = () => $('modal').hidden = true;
 /* ---------- save / restore / GPX / print ---------- */
 function saveCourse(key='orienteer.saved') { if (S.course) localStorage.setItem(key, JSON.stringify(S.course)); }
 function restore(c) {
-  S.course = c; S.diff = c.diff; S.start = c.start; S.area = c.area; S.data = null;
+  S.course = c; S.start = c.start; S.area = c.area; S.data = null;
   areaLayer.clearLayers(); if (c.area) L.geoJSON(c.area, { style:{ color:'#333', weight:2, dashArray:'6 4', fillOpacity:0.05 }, interactive:false }).addTo(areaLayer);
-  document.querySelectorAll('#diff button').forEach(x => x.classList.toggle('on', x.dataset.d === c.diff));
   $('scoreMode').checked = !!c.score; $('hidePos').checked = c.diff !== 'easy';
-  map.fitBounds(L.latLngBounds([[c.start[1], c.start[0]], ...c.controls.map(k => [k.lat, k.lon])]).pad(0.2));
-  drawCourse();
+  fitTo(L.latLngBounds([[c.start[1], c.start[0]], ...c.controls.map(k => [k.lat, k.lon])]).pad(0.1));
+  drawCourse(); refreshUI();
 }
 $('save').onclick = () => { if (!S.course) return status('Nothing to save.'); saveCourse(); status('Course saved on this device.'); };
 $('load').onclick = () => { const s = localStorage.getItem('orienteer.saved') || localStorage.getItem('orienteer.autosave'); if (!s) return status('No saved course.'); restore(JSON.parse(s)); status('Course restored.'); };
@@ -532,7 +561,7 @@ $('rad').oninput = () => $('radOut').textContent = (+$('rad').value >= 5 ? $('ra
 $('run').onclick = () => {
   if (!S.course) return status('Generate or load a course first.');
   S.run = { started:null, punched:{}, splits:[], hints:[], pos:null, next:1, finished:false, watch:null };
-  $('panel').hidden = true; $('runbar').hidden = false; $('rStart').hidden = false; $('penOut').textContent = HINT_PENALTY;
+  endDraw(); closePops(); meLayer.clearLayers(); $('sheet').hidden = true; $('runbar').hidden = false; document.body.classList.add('running'); $('rStart').hidden = false; $('penOut').textContent = HINT_PENALTY;
   drawCourse(); updateRunUI();
   if (!navigator.geolocation) { $('rMsg').textContent = 'No geolocation on this device.'; return; }
   startWatch();
@@ -575,8 +604,8 @@ function finish(quit=false) { const r = S.run; if (!r) return; r.finished = true
   modal(`<h3>${quit ? 'Run ended' : '🏁 Finished!'}</h3><p>Time <b>${fmt(raw)}</b> + hint penalty ${fmt(pen)} = <b>${fmt(raw + pen)}</b><br>Hints used: ${r.hints.length}${res.missing.length ? '<br>Missing controls: ' + res.missing.join(', ') : ''}</p>
     <table><tr><th>Control</th><th>Split</th><th>Total</th></tr>${r.splits.map(s => `<tr><td>${s.n}</td><td>${fmt(s.split)}</td><td>${fmt(s.total)}</td></tr>`).join('')}${!quit ? `<tr><td>Finish</td><td>${fmt(end - (r.splits.length ? r.splits[r.splits.length-1].t : r.started))}</td><td>${fmt(raw)}</td></tr>` : ''}</table>`);
   $('rClock').textContent = fmt(raw); updateRunUI(); }
-$('rStop').onclick = () => { if (S.run && !S.run.finished) finish(true); $('runbar').hidden = true; $('panel').hidden = false; meLayer.clearLayers(); };
-$('hidePos').onchange = () => { if (S.run && S.run.pos) onPos(S.run.pos); updateCoords(); };
+$('rStop').onclick = () => { if (S.run && !S.run.finished) finish(true); $('runbar').hidden = true; $('sheet').hidden = false; document.body.classList.remove('running'); S.run = null; drawCourse(); setSnap('peek'); meLayer.clearLayers(); };
+$('hidePos').onchange = () => { hidePosTouched = true; if (S.run && S.run.pos) onPos(S.run.pos); updateCoords(); };
 $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').textContent = 'Waiting for GPS…';
   let t = nextTarget(); const here = [r.pos.coords.longitude, r.pos.coords.latitude];
   if (!t) t = S.course.controls.filter(k => !r.punched[k.n]).sort((a,b) => turf.distance(here,[a.lon,a.lat]) - turf.distance(here,[b.lon,b.lat]))[0];
@@ -587,9 +616,11 @@ $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').
 
 /* ---------- boot ---------- */
 (function boot() {
+  setDiff(localStorage.getItem('orienteer.diff') || 'easy', { silent:true });
   const s = localStorage.getItem('orienteer.autosave');
   if (s) { try { restore(JSON.parse(s)); status('Restored your last course. Generate a new one any time.'); } catch {} }
   else status('Search for a park, or zoom in and draw an area.');
+  refreshUI();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
 })();
-window.App = { toUTM, startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
+window.App = { setDiff, setSnap, refreshUI, addPoint, toUTM, startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
