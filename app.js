@@ -9,10 +9,14 @@ const status = (t) => { $('status').textContent = t; console.log('[status]', t);
 
 /* ---------- map ---------- */
 const map = L.map('map', { zoomControl:true }).setView([39.5,-98.35], 4);
-const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'});
 const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagery © Esri'});
-const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenTopoMap (CC-BY-SA), © OSM'});
-L.control.layers({ 'Street (OSM)':osm, 'Satellite (Esri)':sat, 'Topo (OpenTopoMap)':topo }, null, { position:'bottomright' }).addTo(map);
+const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:19,maxNativeZoom:16,subdomains:'abc',attribution:'Map: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA) · Data: © OpenStreetMap contributors, SRTM'});
+const usgs = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:16,attribution:'Tiles courtesy of the <a href="https://www.usgs.gov/">U.S. Geological Survey</a> (The National Map)'});
+const BASES = { 'Topo (OpenTopoMap)':topo, 'Topo US (USGS)':usgs, 'Street (OSM)':osm, 'Satellite (Esri)':sat };
+(BASES[localStorage.getItem('orienteer.base')] || topo).addTo(map);
+map.on('baselayerchange', e => localStorage.setItem('orienteer.base', e.name));
+L.control.layers(BASES, null, { position:'topright' }).addTo(map);
 map.attributionControl.setPrefix(false); map.zoomControl.setPosition('topright');
 const areaLayer = L.layerGroup().addTo(map), trailLayer = L.layerGroup().addTo(map), courseLayer = L.layerGroup().addTo(map), meLayer = L.layerGroup().addTo(map), drawLayer = L.layerGroup().addTo(map);
 

@@ -11,6 +11,7 @@ for (const [la,lo] of [[40.75,-74.73],[-33.8568,151.2153],[60.5,5.3],[51.4778,-0
   const ref=proj4('EPSG:4326',`+proj=utm +zone=${u.zone}${la<0?' +south':''} +datum=WGS84`,[lo,la]);
   console.log(la,lo,u.zone+u.band,u.E.toFixed(3),u.N.toFixed(3),'ref',ref.map(x=>x.toFixed(3)).join(' '),'Δ',Math.hypot(u.E-ref[0],u.N-ref[1]).toFixed(4),'m');
 }
+console.log('default tiles', await page.evaluate(()=>[...document.querySelectorAll('.leaflet-tile')].slice(0,1).map(i=>i.src)));
 await page.click('#run'); await page.waitForTimeout(800); await page.click('#rStart'); await page.waitForTimeout(800);
 const show=async l=>console.log(l,'|',await page.textContent('#rNextC'),'|',await page.textContent('#rMe'));
 await page.uncheck('#hidePos'); await page.waitForTimeout(300); await show('DD shown');
@@ -23,4 +24,9 @@ await ctx.setGeolocation({latitude:40.75125,longitude:-74.7288,accuracy:5}); awa
 await page.screenshot({path:'shots/6-coords-bar.png'});
 await page.click('#courseList'); await page.waitForTimeout(300); console.log((await page.textContent('#modalBody')).replace(/\s+/g,' '));
 const bar=await page.$eval('#runbar',e=>e.getBoundingClientRect().height); console.log('runbar h',bar,'of',page.viewportSize().height);
-await page.screenshot({path:'shots/6-coords.png'}); await b.close();
+await page.screenshot({path:'shots/6-coords.png'});
+await page.click('#modalClose'); await page.evaluate(()=>{const c=document.querySelector('.leaflet-control-layers');c.classList.add('leaflet-control-layers-expanded')});
+await page.evaluate(()=>[...document.querySelectorAll('.leaflet-control-layers-base label')].find(l=>l.textContent.includes('USGS')).querySelector('input').click()); await page.waitForTimeout(1500); await page.reload(); await page.waitForTimeout(2000);
+console.log('saved base', await page.evaluate(()=>localStorage.getItem('orienteer.base')), await page.evaluate(()=>[...document.querySelectorAll('.leaflet-tile')].map(i=>i.src).find(s=>s.includes('nationalmap'))));
+console.log('attrib', await page.textContent('.leaflet-control-attribution'));
+await page.click('#print').catch(()=>{}); await b.close();
