@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#c4007a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<title>Orienteer – virtual course generator</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head><body>
+<div id="map"></div>
+
+<div id="panel">
+  <div class="row head"><b>🧭 Orienteer</b><button id="togglePanel" class="sm">▾</button></div>
+  <div id="panelBody">
+  <div class="row"><input id="q" placeholder="Search park, preserve, trail…" enterkeyhint="search"><button id="searchBtn">Go</button></div>
+  <div id="results"></div>
+  <div class="label">1 · Area</div>
+  <div class="row wrap">
+    <button id="drawRect">▭ Rectangle</button>
+    <button id="drawPoly">⬠ Polygon</button>
+    <button id="pickPark">🌲 Parks here</button>
+    <button id="clearArea" class="sm">✕</button>
+  </div>
+  <div id="parks"></div>
+  <div class="label">2 · Difficulty</div>
+  <div class="row seg" id="diff">
+    <button data-d="easy" class="on">Easy<small>0–10 m</small></button>
+    <button data-d="medium">Medium<small>15–50 m</small></button>
+    <button data-d="hard">Hard<small>50–150 m</small></button>
+    <button data-d="expert">Expert<small>150 m+</small></button>
+  </div>
+  <div class="row"><label>Controls <b id="nOut">8</b></label><input type="range" id="n" min="5" max="15" value="8"></div>
+  <div class="row"><label>Target length <b id="lenOut">3.0</b> km</label><input type="range" id="len" min="0.5" max="12" step="0.5" value="3"></div>
+  <div class="row wrap small">
+    <label><input type="checkbox" id="roads" checked> roads count as trails</label>
+    <label><input type="checkbox" id="scoreMode"> score / any order</label>
+  </div>
+  <div class="label">3 · Start</div>
+  <div class="row wrap"><button id="startGps">📍 My location</button><button id="startTap">👆 Tap map</button><span id="startInfo" class="small"></span></div>
+  <div class="row wrap">
+    <button id="gen" class="primary">Generate course</button>
+    <button id="regen">↻ Regenerate</button>
+  </div>
+  <div class="row wrap">
+    <button id="run" class="primary">▶ Run</button>
+    <button id="save">💾 Save</button><button id="load">📂 Load</button>
+    <button id="gpx">GPX</button><button id="print">🖨 Print</button>
+    <button id="cacheTiles" class="sm">⬇ Offline tiles</button>
+  </div>
+  <div id="status" class="small"></div>
+  <div id="legend" class="small"></div>
+  </div>
+</div>
+
+<div id="runbar" hidden>
+  <div class="row"><b id="rClock">00:00</b><span id="rNext"></span><span id="rAcc" class="small"></span></div>
+  <div class="row wrap small">
+    <label>Radius <b id="radOut">auto</b><input type="range" id="rad" min="4" max="35" value="4" step="1"></label>
+    <label><input type="checkbox" id="hidePos"> hide my position</label>
+  </div>
+  <div class="row wrap">
+    <button id="rStart" class="primary">Start clock</button>
+    <button id="hint">🧭 Hint (+<span id="penOut">60</span>s)</button>
+    <button id="rStop">■ Finish/Quit</button>
+  </div>
+  <div id="rMsg" class="small"></div>
+</div>
+
+<div id="modal" hidden><div class="card"><div id="modalBody"></div><button id="modalClose">Close</button></div></div>
+<div id="printSheet"></div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/turf.min.js"></script>
+<script src="app.js"></script>
+</body></html>
