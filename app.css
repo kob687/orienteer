@@ -29,14 +29,21 @@ body.running #tools #tDraw{display:none}
 #drawBar button{min-height:56px;font-size:20px}#dAdd{font-size:18px!important}
 #dDone.ok{background:#1a8a3a;color:#fff;border-color:#1a8a3a;font-size:26px}
 /* bottom sheet */
-#sheet{position:fixed;z-index:1000;left:var(--sal);right:var(--sar);bottom:0;height:var(--vis);max-width:480px;margin:0 auto;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -2px 14px #0004;display:flex;flex-direction:column;transition:height .25s ease;touch-action:none;--vis:calc(76px + var(--sab))}
+#sheet{position:fixed;z-index:1000;left:var(--sal);right:var(--sar);bottom:0;height:var(--vis);max-width:480px;margin:0 auto;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -2px 14px #0004;display:flex;flex-direction:column;transition:height .25s ease;--vis:calc(76px + var(--sab))}
+/* NB: no touch-action:none on #sheet itself – WebKit intersects touch-action with every ancestor, so it made #sheetBody unscrollable on iOS. Only the drag zones (handle + peek header) opt out of native panning. */
+#sheet.has-area[data-snap=peek]{--vis:calc(100px + var(--sab))}
+#sheet[data-snap=peek]:not(.dragging) #sheetBody{visibility:hidden}
 #sheet.dragging{transition:none}
 #sheet[data-snap=half]{--vis:50vh}#sheet[data-snap=full]{--vis:88vh}
+#handle,#peek{touch-action:none;user-select:none;-webkit-user-select:none}
 #handle{height:22px;display:flex;align-items:center;justify-content:center;cursor:grab;flex:none}
 #handle span{width:44px;height:5px;border-radius:3px;background:#bbb}
 #peek{display:flex;gap:8px;align-items:center;padding:0 10px 8px;flex:none;min-height:54px}
 #summary{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#peekBtns{display:flex;gap:8px;align-items:center;flex:none}
+#sheet.has-area #peek{flex-wrap:wrap;row-gap:4px}#sheet.has-area #summary{flex:1 1 100%}#sheet.has-area #peekBtns{flex:1 1 100%}#sheet.has-area #peekAction{flex:1}
 #peekAction{min-height:46px;white-space:nowrap}
+button.danger{background:#fff;color:#b00020;border:2px solid #b00020;font-weight:700;min-height:46px;white-space:nowrap}
 #sheetBody{flex:1;overflow:auto;padding:0 12px calc(16px + var(--sab));touch-action:pan-y;overscroll-behavior:contain}
 .label{font-weight:700;margin:12px 0 6px;color:var(--m);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
@@ -46,7 +53,8 @@ body.running #tools #tDraw{display:none}
 button.big{width:100%;min-height:54px;font-size:17px}
 .row.two{display:grid;grid-template-columns:1fr 1fr}
 #status{min-height:1.2em;padding:2px 0}
-details#opts{margin-top:12px;border-top:1px solid #eee}details#opts summary{min-height:44px;display:flex;align-items:center;font-weight:600;cursor:pointer}
+#opts{margin-top:12px;border-top:1px solid #eee}#optsToggle{width:100%;min-height:48px;display:flex;align-items:center;justify-content:space-between;font-weight:600;background:none;border:none;border-radius:0;padding:8px 2px;text-align:left}#optsToggle .chev{transition:transform .2s}#optsToggle[aria-expanded=true] .chev{transform:rotate(90deg)}
+#toast{position:fixed;z-index:3000;left:50%;transform:translateX(-50%);top:calc(10px + var(--sat));display:flex;gap:10px;align-items:center;background:#222;color:#fff;border-radius:12px;padding:6px 6px 6px 14px;box-shadow:0 2px 12px #0006;font-size:14px;max-width:92vw}
 /* run bar */
 #runbar{position:fixed;z-index:1000;left:calc(8px + var(--sal));right:calc(8px + var(--sar));bottom:calc(8px + var(--sab));max-width:480px;margin:0 auto;background:#fffffff5;border-radius:14px;box-shadow:0 2px 12px #0004;padding:6px 10px}
 #runbar .row{margin:3px 0}.rhead #rToggle{margin-left:auto;min-width:44px;padding:0}

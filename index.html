@@ -7,7 +7,7 @@
 <link rel="icon" href="icon.svg">
 <title>Orienteer – virtual course generator</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="app.css?v=6">
 </head><body>
 <div id="map"></div>
 
@@ -42,8 +42,11 @@
   <div id="handle" role="button" aria-label="Expand or collapse panel"><span></span></div>
   <div id="peek">
     <div id="summary">Pick an area to start</div>
-    <button id="peekRegen" hidden aria-label="Regenerate">↻</button>
-    <button id="peekAction" class="primary">✏️ Draw area</button>
+    <div id="peekBtns">
+      <button id="newCourse" class="danger" hidden>✕ New course</button>
+      <button id="peekRegen" hidden aria-label="Regenerate">↻</button>
+      <button id="peekAction" class="primary">✏️ Draw area</button>
+    </div>
   </div>
   <div id="sheetBody">
     <div id="status" class="small"></div>
@@ -67,13 +70,16 @@
     <button id="gen" class="primary big">Generate course</button>
     <div class="row two"><button id="run" class="primary">▶ Start run</button><button id="regen">↻ Regenerate</button></div>
     <div id="legend" class="small"></div>
-    <details id="opts"><summary>⚙️ Options</summary>
+    <div id="opts">
+      <button id="optsToggle" type="button" aria-expanded="false" aria-controls="optsBody"><span>⚙️ Options</span><span class="chev" aria-hidden="true">▸</span></button>
+      <div id="optsBody" hidden>
       <div class="row"><label>Around-me radius <b id="circROut">500 m</b></label><input type="range" id="circR" min="250" max="3000" step="50" value="500"></div>
       <div class="row wrap"><span class="small">Start:</span><button id="startGps">📍 My location</button><button id="startTap">⌖ Pick on map</button></div>
       <div id="startInfo" class="small"></div>
       <div class="row wrap"><label class="chk"><input type="checkbox" id="roads" checked> roads count as trails</label><label class="chk"><input type="checkbox" id="scoreMode"> score / any order</label></div>
       <div class="row wrap"><button id="save">💾 Save</button><button id="load">📂 Load</button><button id="gpx">GPX</button><button id="print">🖨 Print</button><button id="cacheTiles">⬇ Offline tiles</button><button id="clearArea">✕ Clear area</button></div>
-    </details>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -97,9 +103,10 @@
 
 <div id="modal" hidden><div class="card"><div id="modalBody"></div><button id="modalClose">Close</button></div></div>
 <div id="printSheet"></div>
+<div id="toast" hidden role="status"><span id="toastMsg"></span><button id="toastBtn" class="primary">Reload</button></div>
 
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/turf.min.js"></script>
-<script src="printmap.js"></script>
-<script src="app.js"></script>
+<script src="printmap.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body></html>

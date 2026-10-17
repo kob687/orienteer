@@ -171,7 +171,20 @@ function showMe(lat, lon, acc) { if (S.run) return; meLayer.clearLayers(); L.cir
 $('circMe').onclick = () => locate((lat, lon) => circleAround(lat, lon));
 $('tLocate').onclick = () => { if (S.run && S.run.pos) return map.setView([S.run.pos.coords.latitude, S.run.pos.coords.longitude], Math.max(map.getZoom(), 16));
   locate((lat, lon) => { map.setView([lat, lon], Math.max(map.getZoom(), 15)); status('Located.'); }); };
-$('clearArea').onclick = () => { endDraw(); S.area = null; S.course = null; areaLayer.clearLayers(); courseLayer.clearLayers(); trailLayer.clearLayers(); status('Area cleared.'); refreshUI(); };
+/* New course / Clear area: wipe area, course, start, layers and the autosaved course (so it doesn't come back on reload), back to Step 1 */
+function resetCourse(ask) {
+  if (ask && (S.area || S.course) && !confirm('Start a new course?\n\nThis clears the current area and course.')) return false;
+  endDraw(); closePops();
+  S.area = S.course = S.start = S.data = null;
+  [areaLayer, courseLayer, trailLayer, drawLayer, meLayer].forEach(l => l.clearLayers());
+  try { localStorage.removeItem('orienteer.autosave'); } catch {}
+  $('startInfo').textContent = '';
+  refreshUI(); setSnap('half'); $('sheetBody').scrollTop = 0;
+  status('Step 1: pick an area — draw, search a park, use this view, or around me.');
+  return true;
+}
+$('newCourse').onclick = () => resetCourse(true);
+$('clearArea').onclick = () => { if (resetCourse(false)) status('Area cleared. Step 1: pick an area.'); };
 
 /* ---------- popovers: search + layers ---------- */
 function closePops() { $('searchBox').hidden = true; $('layerBox').hidden = true; $('tSearch').classList.remove('on'); $('tLayers').classList.remove('on'); }
@@ -183,22 +196,47 @@ $('tLayers').onclick = () => { const o = $('layerBox').hidden; closePops(); if (
     b.onclick = () => { Object.values(BASES).forEach(x => map.removeLayer(x)); lyr.addTo(map); localStorage.setItem('orienteer.base', name); closePops(); }; box.appendChild(b); });
   box.hidden = false; $('tLayers').classList.add('on'); };
 
-/* ---------- bottom sheet: peek / half / full ---------- */
+/* ---------- bottom sheet: peek / half / full ----------
+   The drag gesture lives ONLY on the handle + peek header (both touch-action:none). It never calls preventDefault,
+   ignores pointerdowns on buttons/inputs, and only becomes a drag after 10 px of movement, so taps always reach buttons.
+   A tap (< 10 px) on the handle / header text toggles peek <-> half. */
 const SNAPS = ['peek', 'half', 'full'];
 function setSnap(s) { $('sheet').dataset.snap = s; }
-function visH(s) { const h = innerHeight; return s === 'full' ? h * 0.88 : s === 'half' ? h * 0.5 : 76; }
+function visH(s) { const h = innerHeight; return s === 'full' ? h * 0.88 : s === 'half' ? h * 0.5 : ($('sheet').classList.contains('has-area') ? 100 : 76); }
+const toggleSnap = () => setSnap($('sheet').dataset.snap === 'peek' ? 'half' : 'peek');
 (function sheetDrag() {
-  const sh = $('sheet'); let y0 = null, v0 = 0, moved = false, t0 = 0;
-  const down = e => { if (e.target.closest('button,input') && e.currentTarget !== $('handle')) return; y0 = e.clientY; v0 = visH(sh.dataset.snap); moved = false; t0 = Date.now(); sh.classList.add('dragging'); e.currentTarget.setPointerCapture(e.pointerId); };
-  const move = e => { if (y0 == null) return; const dy = e.clientY - y0; if (Math.abs(dy) > 6) moved = true; const v = Math.max(60, Math.min(innerHeight * 0.88, v0 - dy)); sh.style.height = v + 'px'; };
-  const up = e => { if (y0 == null) return; const dy = e.clientY - y0; sh.classList.remove('dragging'); sh.style.height = ''; y0 = null;
-    if (!moved) { const i = SNAPS.indexOf(sh.dataset.snap); return setSnap(i === 0 ? 'half' : 'peek'); }
-    const v = v0 - dy, fast = Math.abs(dy) / Math.max(1, Date.now() - t0) > 0.6;
+  const sh = $('sheet'); let g = null; // { id, y0, v0, t0, el, drag }
+  const down = e => {
+    if (g || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (e.target.closest('button,input,select,a,label')) return; // let controls get their own tap
+    g = { id:e.pointerId, y0:e.clientY, v0:visH(sh.dataset.snap), t0:Date.now(), el:e.currentTarget, drag:false };
+  };
+  const move = e => {
+    if (!g || e.pointerId !== g.id) return; const dy = e.clientY - g.y0;
+    if (!g.drag) { if (Math.abs(dy) < 10) return; g.drag = true; sh.classList.add('dragging'); try { g.el.setPointerCapture(g.id); } catch {} }
+    sh.style.height = Math.max(60, Math.min(innerHeight * 0.88, g.v0 - dy)) + 'px';
+  };
+  const end = cancel => e => {
+    if (!g || e.pointerId !== g.id) return; const st = g; g = null; const dy = e.clientY - st.y0;
+    sh.classList.remove('dragging'); sh.style.height = '';
+    if (!st.drag) { if (!cancel) toggleSnap(); return; }
+    if (cancel) return;
+    const v = st.v0 - dy, fast = Math.abs(dy) / Math.max(1, Date.now() - st.t0) > 0.6;
     let t = SNAPS.reduce((b, s) => Math.abs(visH(s) - v) < Math.abs(visH(b) - v) ? s : b, 'peek');
     if (fast && t === sh.dataset.snap) t = SNAPS[Math.max(0, Math.min(2, SNAPS.indexOf(t) + (dy < 0 ? 1 : -1)))];
-    setSnap(t); };
-  [$('handle'), $('peek')].forEach(el => { el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); });
+    setSnap(t);
+  };
+  [$('handle'), $('peek')].forEach(el => { el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('pointerup', end(false)); el.addEventListener('pointercancel', end(true)); });
+  $('handle').tabIndex = 0; $('handle').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSnap(); } });
 })();
+/* Options: explicit button + aria-expanded (replaces <details>, whose content sat below the fold of the half sheet) */
+function setOpts(open) {
+  $('optsToggle').setAttribute('aria-expanded', String(open)); $('optsBody').hidden = !open;
+  if (open) { setSnap('full'); const sb = $('sheetBody');
+    const reveal = () => { sb.scrollTop += $('opts').getBoundingClientRect().top - sb.getBoundingClientRect().top - 8; };
+    requestAnimationFrame(reveal); setTimeout(reveal, 300); }
+}
+$('optsToggle').onclick = () => setOpts($('optsToggle').getAttribute('aria-expanded') !== 'true');
 function fitTo(bounds) { const top = 10, bottom = Math.min(visH($('sheet').dataset.snap), innerHeight * 0.5);
   map.fitBounds(bounds, { paddingTopLeft:[20, top + 20], paddingBottomRight:[70, bottom + 20] }); }
 function refreshUI() {
@@ -210,6 +248,7 @@ function refreshUI() {
   else { sum = 'Pick an area to start'; act = ['✏️ Draw area', () => startDraw('poly')]; }
   $('summary').textContent = sum; $('peekAction').textContent = act[0]; $('peekAction').onclick = act[1];
   $('sheet').classList.toggle('stale', !!stale); $('gen').textContent = stale ? `Generate ${DIFF[S.diff].label} course (current is ${DIFF[c.diff].label})` : 'Generate course';
+  $('newCourse').hidden = !(a || c); $('sheet').classList.toggle('has-area', !!(a || c));
   $('peekRegen').hidden = !c || stale; $('run').disabled = $('regen').disabled = !c; $('gen').disabled = !a;
 }
 $('peekRegen').onclick = () => generate();
@@ -616,6 +655,7 @@ $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').
   r.hints.push({ t:Date.now(), target:t.finish ? 'F' : t.n });
   $('rMsg').innerHTML = `🧭 ${t.finish ? 'Finish' : 'Control ' + t.n}: <b>${Math.round(b)}° ${dirs[Math.round(b/45)%8]}</b>, <b>${Math.round(d)} m</b> (hint #${r.hints.length}, +${HINT_PENALTY}s)`; };
 
+function toast(msg, btn, fn) { $('toastMsg').textContent = msg; $('toastBtn').textContent = btn; $('toastBtn').onclick = () => { $('toast').hidden = true; fn(); }; $('toast').hidden = false; }
 /* ---------- boot ---------- */
 (function boot() {
   setDiff(localStorage.getItem('orienteer.diff') || 'easy', { silent:true });
@@ -623,6 +663,22 @@ $('hint').onclick = () => { const r = S.run; if (!r || !r.pos) return $('rMsg').
   if (s) { try { restore(JSON.parse(s)); status('Restored your last course. Generate a new one any time.'); } catch {} }
   else status('Search for a park, or zoom in and draw an area.');
   refreshUI();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+  if ('serviceWorker' in navigator) {
+    // pick up new versions promptly: no HTTP cache for sw.js, re-check on every foreground, reload when a new SW takes over
+    const sw = navigator.serviceWorker; let ctl = sw.controller, reloading = false;
+    sw.addEventListener('controllerchange', () => {
+      if (!ctl) { ctl = sw.controller; return; } // first install: nothing stale to replace
+      if (reloading) return;
+      if ((S.run && !S.run.finished) || drawMode) return toast('Update available', 'Tap to reload', () => location.reload());
+      reloading = true; location.reload();
+    });
+    sw.register('sw.js', { updateViaCache:'none' }).then(reg => {
+      const check = () => reg.update().catch(() => {});
+      if (reg.waiting && sw.controller) reg.waiting.postMessage('skipWaiting');
+      reg.addEventListener('updatefound', () => { const n = reg.installing; if (n) n.addEventListener('statechange', () => { if (n.state === 'installed' && sw.controller) n.postMessage('skipWaiting'); }); });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      setInterval(check, 30 * 60 * 1000);
+    }).catch(e => console.warn('SW', e));
+  }
 })();
-window.App = { setDiff, setSnap, refreshUI, addPoint, toUTM, startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
+window.App = { setDiff, setSnap, setOpts, resetCourse, refreshUI, addPoint, toUTM, startDraw, useView, endDraw, S, generate, setArea, setStart, fetchData, candidates, gpx, onPos, finish, DIFF, map, nearestTurf };
